@@ -123,6 +123,16 @@ final class PromqlQueryExecutor {
     }
 
     /**
+     * Thrown when a query doesn't complete within its timeout. Maps to the Prometheus {@code timeout} error type, and is distinguished
+     * from other {@code 503} failures because it is an expected outcome rather than a sign of a server problem.
+     */
+    static final class QueryTimeoutException extends ElasticsearchStatusException {
+        QueryTimeoutException(TimeValue timeout) {
+            super("query timed out after [{}]", RestStatus.SERVICE_UNAVAILABLE, timeout);
+        }
+    }
+
+    /**
      * Completes the delegate with whichever comes first: the query's result, or a timeout failure.
      */
     private static final class TimeoutListener implements ActionListener<EsqlQueryResponse> {
@@ -138,9 +148,7 @@ final class PromqlQueryExecutor {
             scheduledTimeout = threadPool.schedule(() -> {
                 if (completed.compareAndSet(false, true)) {
                     onTimeout.run();
-                    delegate.onFailure(
-                        new ElasticsearchStatusException("query timed out after [{}]", RestStatus.SERVICE_UNAVAILABLE, timeout)
-                    );
+                    delegate.onFailure(new QueryTimeoutException(timeout));
                 }
             }, timeout, threadPool.generic());
             // If the query completed before scheduledTimeout was set, its listener had nothing to cancel, so cancel it here.
